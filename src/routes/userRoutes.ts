@@ -6,6 +6,13 @@ import axios from "axios";
 
 const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY;
 const router = Router();
+const profilePicUrls = [
+  "https://fra.cloud.appwrite.io/v1/storage/buckets/688871b400027cd4a82e/files/6888f72d000762c57e70/view?project=6888718b002febdd0c02&mode=admin",
+  "https://fra.cloud.appwrite.io/v1/storage/buckets/688871b400027cd4a82e/files/6888f72d000762c57e70/view?project=6888718b002febdd0c02&mode=admin",
+  "https://fra.cloud.appwrite.io/v1/storage/buckets/688871b400027cd4a82e/files/6888f72d000762c57e70/view?project=6888718b002febdd0c02&mode=admin",
+  "https://fra.cloud.appwrite.io/v1/storage/buckets/688871b400027cd4a82e/files/6888f72d000762c57e70/view?project=6888718b002febdd0c02&mode=admin",
+  "https://fra.cloud.appwrite.io/v1/storage/buckets/688871b400027cd4a82e/files/6888f72d000762c57e70/view?project=6888718b002febdd0c02&mode=admin",
+];
 
 /**
  * @openapi
@@ -23,6 +30,7 @@ const router = Router();
 router.get("/me", verifyFirebaseToken, async (req, res) => {
   const user = (req as any).user;
   if (!user) return res.status(404).json({ error: "User not found" });
+  console.log("me:\n", user);
   res.json({ success: true, user });
 });
 
@@ -105,21 +113,38 @@ router.get(
  *         description: User info and success
  */
 router.post("/auth/verify", async (req, res) => {
-  const { idToken } = req.body;
+  console.log(req.body);
+  const authHeader = req.headers.authorization;
+  const idToken =
+    req.body.idToken ||
+    (authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : null);
+  const { firstName, lastName, email, phoneNumber, profileImage, firebaseUid } =
+    req.body;
   if (!idToken) return res.status(400).json({ error: "idToken is required" });
   try {
     const admin = require("../config/firebase").default;
     const decodedToken = await admin.auth().verifyIdToken(idToken);
     let user = await User.findOne({ firebaseUid: decodedToken.uid });
     if (!user) {
+      const randomImage =
+        profilePicUrls[Math.floor(Math.random() * profilePicUrls.length)];
+      console.log("Creating user with data:", {
+        firebaseUid: firebaseUid ?? decodedToken.uid,
+        email: email ?? decodedToken.email,
+        firstName: firstName ?? decodedToken.name?.split(" ")[0] ?? "",
+        lastName: lastName ?? decodedToken.name?.split(" ")[1] ?? "",
+        phoneNumber: phoneNumber ?? "",
+      });
       user = await User.create({
-        firebaseUid: decodedToken.uid,
-        email: decodedToken.email,
-        firstName: decodedToken.name?.split(" ")[0] || "",
-        lastName: decodedToken.name?.split(" ")[1] || "",
-        profileImage: decodedToken.picture || "",
+        firebaseUid: firebaseUid || decodedToken.uid,
+        email: email || decodedToken.email,
+        firstName: firstName || decodedToken.name?.split(" ")[0] || "",
+        lastName: lastName || decodedToken.name?.split(" ")[1] || "",
+        profileImage: profileImage || decodedToken.picture || randomImage,
+        phoneNumber: phoneNumber || "",
       });
     }
+    console.log("userData:\n", user);
     res.json({
       success: true,
       user: {
@@ -128,13 +153,16 @@ router.post("/auth/verify", async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
+        phoneNumber: user.phoneNumber,
         role: user.role,
       },
     });
   } catch (err) {
-    res.status(401).json({ error: "Invalid token" });
+    res.status(401).json({ error: "Invalid token", content: err });
   }
 });
+
+// ========= TEST ROUTES ONLY: DONT USE ========= //
 
 /**
  * @openapi

@@ -4,7 +4,7 @@ const lostPetSchema = new Schema(
   {
     petId: { type: Types.ObjectId, ref: "Pet", required: true },
     reporterId: { type: Types.ObjectId, ref: "User", required: true },
-    phoneNumbers: [String],
+    phone: String,
     location: {
       address: String,
       coordinates: {

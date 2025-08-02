@@ -1,9 +1,12 @@
 import { Router } from "express";
 import multer from "multer";
 import { v4 as uuidv4 } from "uuid";
-import { Client, Storage, ID } from "node-appwrite";
+import { Client, Storage, ID, Permission, Role } from "node-appwrite";
 const { InputFile } = require("node-appwrite/file");
 import { verifyFirebaseToken } from "../middleware/auth";
+import Pet from "../models/Pet";
+import Business from "../models/Business";
+import User from "../models/User";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -71,13 +74,34 @@ router.post(
       const result = await storage.createFile(
         BUCKET_ID,
         ID.unique(),
-        InputFile.fromBuffer(file.buffer, file.originalname)
+        InputFile.fromBuffer(file.buffer, file.originalname),
+        [Permission.read(Role.any())] // 👈 Public read permission
       );
 
-      const url = `https://cloud.appwrite.io/v1/storage/buckets/${BUCKET_ID}/files/${result.$id}/view?project=${process.env.APPWRITE_PROJECT_ID}`;
+      const imageUrl = `https://cloud.appwrite.io/v1/storage/buckets/${BUCKET_ID}/files/${result.$id}/view?project=${process.env.APPWRITE_PROJECT_ID}`;
 
-      res.json({ success: true, fileId: result.$id, imageUrl: url });
+      // Save to appropriate model
+      if (type === "pet") {
+        await Pet.findByIdAndUpdate(
+          req.body.petId,
+          { $push: { images: imageUrl } },
+          { new: true }
+        );
+      } else if (type === "business") {
+        await Business.findOneAndUpdate(
+          { ownerId: req.user._id },
+          { $push: { images: imageUrl } },
+          { new: true }
+        );
+      } else if (type === "profile") {
+        await User.findByIdAndUpdate(req.user._id, {
+          profileImage: imageUrl,
+        });
+      }
+
+      res.json({ success: true, fileId: result.$id, imageUrl });
     } catch (err) {
+      console.error(err);
       res.status(500).json({ error: "Failed to upload image", details: err });
     }
   }
@@ -99,23 +123,54 @@ router.post(
  *           schema:
  *             type: object
  *             properties:
- *               fileId:
+ *               imageUrl:
  *                 type: string
+ *               type:
+ *                 type: string
+ *                 enum: [pet, business, profile]
+ *               petId:
+ *                 type: string
+ *                 nullable: true
  *     responses:
  *       200:
  *         description: Image deleted
  */
 router.delete("/image", verifyFirebaseToken, async (req, res) => {
-  const { fileId } = req.body;
+  const { imageUrl, type, petId } = req.body;
 
-  if (!fileId) return res.status(400).json({ error: "fileId is required" });
+  if (!imageUrl || !type)
+    return res.status(400).json({ error: "Missing required fields" });
 
+  const fileId = extractFileIdFromUrl(imageUrl);
   try {
     await storage.deleteFile(BUCKET_ID, fileId);
+
+    // Remove from MongoDB
+    if (type === "pet" && petId) {
+      await Pet.findByIdAndUpdate(petId, {
+        $pull: { images: imageUrl },
+      });
+    } else if (type === "business") {
+      await Business.findOneAndUpdate(
+        { ownerId: req.user._id },
+        { $pull: { images: imageUrl } }
+      );
+    } else if (type === "profile") {
+      await User.findByIdAndUpdate(req.user._id, {
+        $unset: { profileImage: "" },
+      });
+    }
+
     res.json({ success: true, message: "Image deleted successfully" });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Failed to delete image", details: err });
   }
 });
+
+function extractFileIdFromUrl(imageUrl: string): string {
+  const match = imageUrl.match(/\/files\/([^/]+)\//);
+  return match ? match[1] : "";
+}
 
 export default router;

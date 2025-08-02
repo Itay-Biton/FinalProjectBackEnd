@@ -7,7 +7,6 @@ import petRoutes from "./routes/petRoutes";
 import businessRoutes from "./routes/businessRoutes";
 import lostPetRoutes from "./routes/lostPetRoutes";
 import uploadRoutes from "./routes/uploadRoutes";
-import referenceRoutes from "./routes/referenceRoutes";
 import swaggerUi from "swagger-ui-express";
 import swaggerSpec from "./config/swagger";
 import { errorHandler } from "./middleware/errorHandler";
@@ -26,7 +25,6 @@ app.use("/pets", petRoutes);
 app.use("/businesses", businessRoutes);
 app.use("/lost", lostPetRoutes);
 app.use("/upload", uploadRoutes);
-app.use("/reference", referenceRoutes);
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.use(errorHandler);
