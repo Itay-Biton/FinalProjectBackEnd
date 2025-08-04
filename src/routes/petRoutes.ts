@@ -76,7 +76,7 @@ router.get("/mine", verifyFirebaseToken, async (req, res) => {
 
   const total = await Pet.countDocuments(query);
   const pets = await Pet.find(query).skip(Number(offset)).limit(Number(limit));
-
+  console.log(pets);
   res.json({
     success: true,
     pets,

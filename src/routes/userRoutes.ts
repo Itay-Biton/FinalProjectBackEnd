@@ -8,10 +8,10 @@ const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY;
 const router = Router();
 const profilePicUrls = [
   "https://fra.cloud.appwrite.io/v1/storage/buckets/688871b400027cd4a82e/files/6888f72d000762c57e70/view?project=6888718b002febdd0c02&mode=admin",
-  "https://fra.cloud.appwrite.io/v1/storage/buckets/688871b400027cd4a82e/files/6888f72d000762c57e70/view?project=6888718b002febdd0c02&mode=admin",
-  "https://fra.cloud.appwrite.io/v1/storage/buckets/688871b400027cd4a82e/files/6888f72d000762c57e70/view?project=6888718b002febdd0c02&mode=admin",
-  "https://fra.cloud.appwrite.io/v1/storage/buckets/688871b400027cd4a82e/files/6888f72d000762c57e70/view?project=6888718b002febdd0c02&mode=admin",
-  "https://fra.cloud.appwrite.io/v1/storage/buckets/688871b400027cd4a82e/files/6888f72d000762c57e70/view?project=6888718b002febdd0c02&mode=admin",
+  "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTl-_oWEfhCDPKcGn583HtLFYZGBgdzuFVEXQ&s",
+  "https://i.pinimg.com/736x/49/ed/50/49ed503a920b1eb6d3794bbba292cb88.jpg",
+  "https://endangeredliving.com/wp-content/uploads/2013/09/macaca_nigra_self-portrait.jpg",
+  "https://i.pinimg.com/736x/d5/72/ed/d572ed01adbaf8baf3a39b1db2c9b1c5.jpg",
 ];
 
 /**
@@ -113,13 +113,22 @@ router.get(
  *         description: User info and success
  */
 router.post("/auth/verify", async (req, res) => {
-  console.log(req.body);
+  console.log("req body:\n", req.body);
   const authHeader = req.headers.authorization;
   const idToken =
     req.body.idToken ||
     (authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : null);
   const { firstName, lastName, email, phoneNumber, profileImage, firebaseUid } =
     req.body;
+  console.log(
+    "body:\n",
+    firstName,
+    lastName,
+    email,
+    phoneNumber,
+    profileImage,
+    firebaseUid
+  );
   if (!idToken) return res.status(400).json({ error: "idToken is required" });
   try {
     const admin = require("../config/firebase").default;
