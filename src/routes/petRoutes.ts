@@ -75,8 +75,31 @@ router.get("/mine", verifyFirebaseToken, async (req, res) => {
   const query = { ownerId: user._id };
 
   const total = await Pet.countDocuments(query);
-  const pets = await Pet.find(query).skip(Number(offset)).limit(Number(limit));
-  console.log(pets);
+  const rawPets = await Pet.find(query)
+    .skip(Number(offset))
+    .limit(Number(limit));
+
+  const pets = rawPets.map((pet) => ({
+    id: pet._id.toString(),
+    name: pet.name,
+    species: pet.species,
+    breed: pet.breed,
+    age: Number(pet.age) || 0,
+    birthday: pet.birthday,
+    furColor: pet.furColor,
+    eyeColor: pet.eyeColor,
+    weight: {
+      value: pet.weight?.value || 0,
+      unit: pet.weight?.unit || "kg",
+    },
+    images: pet.images || [],
+    description: pet.description,
+    isLost: pet.isLost,
+    vaccinated: pet.vaccinated,
+    microchipped: pet.microchipped,
+    registrationDate: pet.registrationDate,
+  }));
+
   res.json({
     success: true,
     pets,
@@ -204,8 +227,8 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
  *                 type: string
  *                 example: "Golden Retriever"
  *               age:
- *                 type: string
- *                 example: "3 years"
+ *                 type: number
+ *                 example: 3
  *               birthday:
  *                 type: string
  *                 format: date
@@ -217,8 +240,14 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
  *                 type: string
  *                 example: "brown"
  *               weight:
- *                 type: string
- *                 example: "25kg"
+ *                 type: object
+ *                 properties:
+ *                   value:
+ *                     type: number
+ *                     example: 20
+ *                   unit:
+ *                     type: string
+ *                     example: "kg"
  *               images:
  *                 type: array
  *                 items:
@@ -267,7 +296,9 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
  *             birthday: "2021-05-10"
  *             furColor: "golden"
  *             eyeColor: "brown"
- *             weight: "25kg"
+ *             weight:
+ *               value: 25
+ *               unit: "kg"
  *             images:
  *               - "https://mypetapp.com/images/pet1.jpg"
  *             description: "Very friendly and energetic"
@@ -311,17 +342,22 @@ router.post("/", verifyFirebaseToken, async (req, res) => {
     return res.status(400).json({ error: "name and species are required" });
   }
 
+  const parsedAge = typeof age === "string" ? parseFloat(age) : age;
+
   const pet = await Pet.create({
     ownerId: user._id,
     name,
     species,
     breed,
-    age,
+    age: parsedAge || 0,
     birthday,
     furColor,
     eyeColor,
-    weight,
-    images,
+    weight: {
+      value: weight?.value || 0,
+      unit: weight?.unit || "kg",
+    },
+    images: images || [],
     description,
     isLost,
     location: {
@@ -464,164 +500,5 @@ router.delete("/:id", verifyFirebaseToken, async (req, res) => {
   await pet.deleteOne();
   res.json({ success: true, message: "Pet deleted successfully" });
 });
-
-/**
- * @openapi
- * /pets/{id}/activity:
- *   get:
- *     summary: Get pet activity history
- *     tags:
- *       - Activities
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *       - in: query
- *         name: limit
- *         schema:
- *           type: number
- *       - in: query
- *         name: offset
- *         schema:
- *           type: number
- *     responses:
- *       200:
- *         description: Activity history
- */
-router.get("/:id/activity", verifyFirebaseToken, async (req, res) => {
-  const { limit = 20, offset = 0 } = req.query;
-
-  const activities = await ActivityEntry.find({ petId: req.params.id })
-    .skip(Number(offset))
-    .limit(Number(limit));
-  const total = await ActivityEntry.countDocuments({ petId: req.params.id });
-
-  res.json({
-    success: true,
-    activities,
-    pagination: {
-      total,
-      limit: Number(limit),
-      offset: Number(offset),
-      hasMore: total > Number(offset) + Number(limit),
-    },
-  });
-});
-
-/**
- * @openapi
- * /pets/{id}/activity:
- *   post:
- *     summary: Add activity entry
- *     tags:
- *       - Activities
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *     responses:
- *       201:
- *         description: Activity entry added
- */
-router.post("/:id/activity", verifyFirebaseToken, async (req, res) => {
-  const activity = await ActivityEntry.create({
-    ...req.body,
-    petId: req.params.id,
-  });
-  res.status(201).json({ success: true, activity });
-});
-
-/**
- * @openapi
- * /pets/{petId}/activity/{activityId}:
- *   put:
- *     summary: Update activity entry
- *     tags:
- *       - Activities
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: petId
- *         required: true
- *         schema:
- *           type: string
- *       - in: path
- *         name: activityId
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *     responses:
- *       200:
- *         description: Activity entry updated
- */
-router.put(
-  "/:petId/activity/:activityId",
-  verifyFirebaseToken,
-  async (req, res) => {
-    const activity = await ActivityEntry.findById(req.params.activityId);
-    if (!activity) return res.status(404).json({ error: "Activity not found" });
-
-    Object.assign(activity, req.body);
-    await activity.save();
-    res.json({ success: true, activity });
-  }
-);
-
-/**
- * @openapi
- * /pets/{petId}/activity/{activityId}:
- *   delete:
- *     summary: Delete activity entry
- *     tags:
- *       - Activities
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: petId
- *         required: true
- *         schema:
- *           type: string
- *       - in: path
- *         name: activityId
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Activity entry deleted
- */
-router.delete(
-  "/:petId/activity/:activityId",
-  verifyFirebaseToken,
-  async (req, res) => {
-    const activity = await ActivityEntry.findById(req.params.activityId);
-    if (!activity) return res.status(404).json({ error: "Activity not found" });
-
-    await activity.deleteOne();
-    res.json({ success: true, message: "Activity entry deleted successfully" });
-  }
-);
 
 export default router;

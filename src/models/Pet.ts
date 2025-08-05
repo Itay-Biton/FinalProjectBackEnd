@@ -19,7 +19,7 @@ const petSchema = new Schema(
     birthday: Date,
     furColor: String,
     eyeColor: String,
-    weight: String,
+    weight: { value: Number, unit: String },
     images: [String],
     description: String,
     isLost: { type: Boolean, default: false },

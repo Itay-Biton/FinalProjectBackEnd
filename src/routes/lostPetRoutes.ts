@@ -1,5 +1,6 @@
 import { Router } from "express";
 import LostPet from "../models/LostPet";
+import Pet from "../models/Pet";
 import { verifyFirebaseToken } from "../middleware/auth";
 import { computeMatchScore } from "../utils/matchAlgorithm";
 
@@ -25,11 +26,21 @@ const router = Router();
  *         description: Lost pet reported
  */
 router.post("/", verifyFirebaseToken, async (req, res) => {
-  const lostPet = await LostPet.create({
-    ...req.body,
-    reporterId: (req as any).user._id,
-  });
-  res.status(201).json({ success: true, lostPet });
+  try {
+    const lostPet = await LostPet.create({
+      ...req.body,
+      reporterId: (req as any).user._id,
+    });
+
+    if (lostPet.petId) {
+      await Pet.findByIdAndUpdate(lostPet.petId, { isLost: true });
+    }
+
+    res.status(201).json({ success: true, lostPet });
+  } catch (error) {
+    console.error("Error reporting lost pet:", error);
+    res.status(500).json({ success: false, error: "Server error" });
+  }
 });
 
 /**
@@ -74,7 +85,22 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
   if (status) query.status = status;
   let lostPetsQuery = LostPet.find(query).populate({
     path: "petId",
-    select: "name species breed images",
+    select: [
+      "name",
+      "species",
+      "breed",
+      "images",
+      "age",
+      "weight",
+      "vaccinated",
+      "microchipped",
+      "furColor",
+      "eyeColor",
+      "description",
+      "birthday",
+      "registrationDate",
+      "location",
+    ].join(" "),
   });
   if (location && radius) {
     const [lat, lng] = (location as string).split(",").map(Number);
@@ -131,8 +157,16 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
 router.put("/:id/status", verifyFirebaseToken, async (req, res) => {
   const lostPet = await LostPet.findById(req.params.id);
   if (!lostPet) return res.status(404).json({ error: "Lost pet not found" });
+
   lostPet.status = req.body.status;
   await lostPet.save();
+
+  if (lostPet.petId) {
+    await Pet.findByIdAndUpdate(lostPet.petId, {
+      isLost: lostPet.status === "lost",
+    });
+  }
+
   res.json({ success: true, lostPet });
 });
 

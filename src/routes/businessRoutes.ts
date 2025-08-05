@@ -104,6 +104,77 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - name
+ *               - serviceType
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: "Happy Paws Veterinary Clinic"
+ *               serviceType:
+ *                 type: string
+ *                 example: "veterinary"
+ *               email:
+ *                 type: string
+ *                 example: "contact@happypaws.com"
+ *               phoneNumbers:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["+1-555-123-4567", "+1-555-987-6543"]
+ *               location:
+ *                 type: object
+ *                 properties:
+ *                   address:
+ *                     type: string
+ *                     example: "123 Pet Street, New York, NY"
+ *                   coordinates:
+ *                     type: object
+ *                     properties:
+ *                       type:
+ *                         type: string
+ *                         example: "Point"
+ *                       coordinates:
+ *                         type: array
+ *                         items:
+ *                           type: number
+ *                         example: [-74.006, 40.7128]
+ *               workingHours:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     day:
+ *                       type: string
+ *                       example: "Monday"
+ *                     isOpen:
+ *                       type: boolean
+ *                       example: true
+ *                     openTime:
+ *                       type: string
+ *                       example: "09:00"
+ *                     closeTime:
+ *                       type: string
+ *                       example: "17:00"
+ *               images:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["https://mypetapp.com/images/business1.jpg"]
+ *               description:
+ *                 type: string
+ *                 example: "A full-service veterinary clinic offering checkups, surgeries, and grooming."
+ *               services:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["checkups", "vaccinations", "grooming"]
+ *               isOpen:
+ *                 type: boolean
+ *                 example: true
+ *               isVerified:
+ *                 type: boolean
+ *                 example: false
  *     responses:
  *       201:
  *         description: Business registered
