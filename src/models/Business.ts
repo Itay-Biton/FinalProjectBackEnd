@@ -20,10 +20,22 @@ const businessSchema = new Schema(
     email: String,
     phoneNumbers: [String],
     location: {
-      address: String,
+      address: { type: String },
       coordinates: {
         type: { type: String, enum: ["Point"], default: "Point" },
-        coordinates: { type: [Number], default: [0, 0] },
+        // Store coordinates consistently as [longitude, latitude]
+        coordinates: {
+          type: [Number],
+          validate: {
+            validator: function (val: number[]) {
+              return (
+                val.length === 2 && val.every((num) => typeof num === "number")
+              );
+            },
+            message: "Coordinates must be an array of two numbers [lng, lat]",
+          },
+          default: [0, 0],
+        },
       },
     },
     distance: String,

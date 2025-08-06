@@ -67,11 +67,13 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
   let businessesQuery = Business.find(query);
   if (location && radius) {
     const [lat, lng] = (location as string).split(",").map(Number);
-    businessesQuery = businessesQuery.where("location.coordinates").near({
-      center: { type: "Point", coordinates: [lng, lat] },
-      maxDistance: Number(radius) * 1000,
-      spherical: true,
-    });
+    businessesQuery = businessesQuery
+      .where("location.coordinates.coordinates")
+      .near({
+        center: { type: "Point", coordinates: [lng, lat] }, // [longitude, latitude]
+        maxDistance: Number(radius) * 1000,
+        spherical: true,
+      });
   }
   const total = await Business.countDocuments(query);
   const businesses = await businessesQuery
@@ -87,6 +89,37 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
       hasMore: total > Number(offset) + Number(limit),
     },
   });
+});
+
+/**
+ * @openapi
+ * /businesses/me:
+ *   get:
+ *     summary: List businesses for current user
+ *     tags:
+ *       - Businesses
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of businesses owned by the current user
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 businesses:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Business'
+ */
+router.get("/me", verifyFirebaseToken, async (req, res) => {
+  const ownerId = (req as any).user._id;
+  const businesses = await Business.find({ ownerId });
+  res.json({ success: true, businesses });
 });
 
 /**
@@ -138,6 +171,7 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
  *                         type: array
  *                         items:
  *                           type: number
+ *                         description: "Array with [longitude, latitude]"
  *                         example: [-74.006, 40.7128]
  *               workingHours:
  *                 type: array
