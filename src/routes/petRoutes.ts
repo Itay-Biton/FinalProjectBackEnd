@@ -339,7 +339,7 @@ router.post("/", verifyFirebaseToken, async (req, res) => {
   const parsedAge = typeof age === "string" ? parseFloat(age) : age;
 
   const pet = await Pet.create({
-    ownerId: user._id,
+    ownerId: isFound && !isLost ? null : user._id,
     name,
     species,
     breed,
@@ -444,6 +444,7 @@ router.put("/:id", verifyFirebaseToken, async (req, res) => {
     "microchipped",
     "isLost",
     "isFound",
+    "matchResults",
   ];
 
   allowedUpdates.forEach((field) => {
@@ -584,4 +585,108 @@ router.post("/match", verifyFirebaseToken, async (req, res) => {
   res.json({ success: true, matches });
 });
 
+/**
+ * @openapi
+ * /pets/{id}/confirm-match:
+ *   post:
+ *     summary: Confirm a match for a lost pet
+ *     tags:
+ *       - Pets
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - matchedPetId
+ *             properties:
+ *               matchedPetId:
+ *                 type: string
+ *                 description: The ID of the found pet that was matched
+ *     responses:
+ *       200:
+ *         description: Match confirmed
+ */
+router.post("/:id/confirm-match", verifyFirebaseToken, async (req, res) => {
+  const user = (req as any).user;
+  const { id } = req.params;
+  const { matchedPetId } = req.body;
+
+  if (!matchedPetId) {
+    return res.status(400).json({ error: "matchedPetId is required" });
+  }
+
+  const pet = await Pet.findById(id);
+  if (!pet) return res.status(404).json({ error: "Pet not found" });
+
+  if (pet.ownerId.toString() !== user._id.toString()) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  // Reset flags on the lost pet
+  pet.isLost = false;
+  pet.isFound = false;
+  pet.set("matchResults", []);
+  await pet.save();
+
+  // Remove this found pet from matchResults of other pets
+  await Pet.updateMany(
+    {
+      _id: { $ne: pet._id },
+      "matchResults.petId": matchedPetId,
+    },
+    {
+      $pull: {
+        matchResults: { petId: matchedPetId },
+      },
+    }
+  );
+
+  res.json({ success: true, message: "Match confirmed and others cleared" });
+});
+
 export default router;
+
+/**
+ * @openapi
+ * /pets/matches:
+ *   get:
+ *     summary: Get match results for my lost pets
+ *     tags:
+ *       - Pets
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of matches
+ */
+router.get("/matches", verifyFirebaseToken, async (req, res) => {
+  const user = (req as any).user;
+
+  const lostPets = await Pet.find({ ownerId: user._id, isLost: true });
+
+  const matchResults = lostPets.flatMap((pet) =>
+    (pet.matchResults || []).map((match) => ({
+      petId: pet._id,
+      petName: pet.name,
+      matchedPetId: match.petId,
+      score: match.score,
+      matchedAt: match.matchedAt,
+    }))
+  );
+
+  matchResults.sort(
+    (a, b) => new Date(b.matchedAt).getTime() - new Date(a.matchedAt).getTime()
+  );
+
+  res.json({ success: true, matches: matchResults });
+});

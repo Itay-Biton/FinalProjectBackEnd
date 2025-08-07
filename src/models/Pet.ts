@@ -35,6 +35,13 @@ const petSchema = new Schema(
     registrationDate: { type: Date, default: Date.now },
     vaccinated: Boolean,
     microchipped: Boolean,
+    matchResults: [
+      {
+        petId: { type: Types.ObjectId, ref: "Pet" },
+        score: Number,
+        matchedAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true }
 );

@@ -36,6 +36,20 @@ async function scanForLostFoundMatches() {
           `Match score ${score} between lost:${lostPet._id} and found:${foundPet._id}`
         );
 
+        // Save match to lostPet's matchResults
+        lostPet.matchResults = lostPet.matchResults || [];
+
+        const alreadyMatched = lostPet.matchResults.some(
+          (m) => m.petId?.toString() === foundPet._id?.toString()
+        );
+        if (!alreadyMatched) {
+          lostPet.matchResults.push({
+            petId: foundPet._id,
+            score,
+            matchedAt: new Date(),
+          });
+        }
+
         // Notify the owner of the lost pet
         await sendNotification({
           userId: lostPet.ownerId.toString(),
