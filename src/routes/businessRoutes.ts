@@ -96,13 +96,14 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
   let businessesQuery = Business.find(query);
   if (location && radius) {
     const [lat, lng] = (location as string).split(",").map(Number);
-    businessesQuery = businessesQuery
-      .where("location.coordinates.coordinates")
-      .near({
-        center: { type: "Point", coordinates: [lng, lat] }, // [longitude, latitude]
-        maxDistance: Number(radius) * 1000,
-        spherical: true,
-      });
+    businessesQuery = businessesQuery.where("location.coordinates").near({
+      center: {
+        type: "Point",
+        coordinates: [lng, lat],
+      },
+      maxDistance: Number(radius) * 1000,
+      spherical: true,
+    });
   }
   const total = await Business.countDocuments(query);
   const businesses = await businessesQuery
@@ -130,12 +131,16 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
         distance: `${distance.toFixed(1)} km`,
       };
     });
-    // Sort by numeric distance
-    enrichedBusinesses.sort((a, b) => {
-      const distA = Number(a.distance?.split(" ")[0]) || 0;
-      const distB = Number(b.distance?.split(" ")[0]) || 0;
-      return distA - distB;
-    });
+    if (enrichedBusinesses.length > 0) {
+      enrichedBusinesses.sort((a, b) => {
+        const distA = Number(a.distance?.split(" ")[0]) || 0;
+        const distB = Number(b.distance?.split(" ")[0]) || 0;
+        return distA - distB;
+      });
+    } else if (total > 0) {
+      // If the result is empty but there are businesses, fall back to regular businesses
+      enrichedBusinesses = businesses;
+    }
   }
   res.json({
     success: true,
