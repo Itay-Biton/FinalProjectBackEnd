@@ -40,9 +40,6 @@ const router = Router();
  *                   time: "08:30"
  *                   activityType: "feeding"
  *                   description: "Gave 1 cup of dry food with chicken flavor"
- *                   notes: "Pet enjoyed it"
- *                   quantity: "1 cup"
- *                   duration: null
  *               pagination:
  *                 total: 5
  *                 limit: 10
@@ -109,28 +106,11 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
  *               description:
  *                 type: string
  *                 description: Description of the activity
- *               notes:
- *                 type: string
- *                 description: Additional notes
- *               quantity:
- *                 type: string
- *                 description: Quantity involved in the activity
- *               duration:
- *                 type: string
- *                 nullable: true
- *                 description: Duration of the activity
- *               petId:
- *                 type: string
- *                 description: ID of the pet associated with the activity
  *             example:
  *               date: "15/01/2024"
  *               time: "08:30"
  *               activityType: "feeding"
  *               description: "Gave 1 cup of dry food with chicken flavor"
- *               notes: "Pet enjoyed it"
- *               quantity: "1 cup"
- *               duration: null
- *               petId: null
  *     responses:
  *       201:
  *         description: Created activity
@@ -144,16 +124,17 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
  *                 time: "08:30"
  *                 activityType: "feeding"
  *                 description: "Gave 1 cup of dry food with chicken flavor"
- *                 notes: "Pet enjoyed it"
- *                 quantity: "1 cup"
- *                 duration: null
  */
 router.post("/", verifyFirebaseToken, async (req, res) => {
   const user = (req as any).user;
   try {
+    const { date, time, activityType, description } = req.body;
     const entry = await ActivityEntry.create({
       ownerId: user._id,
-      ...req.body, // date, time, activityType, description, etc.
+      date,
+      time,
+      activityType,
+      description,
     });
     res.status(201).json({ success: true, activity: entry });
   } catch (err) {
@@ -225,28 +206,11 @@ router.get("/:id", verifyFirebaseToken, async (req, res) => {
  *               description:
  *                 type: string
  *                 description: Description of the activity
- *               notes:
- *                 type: string
- *                 description: Additional notes
- *               quantity:
- *                 type: string
- *                 description: Quantity involved in the activity
- *               duration:
- *                 type: string
- *                 nullable: true
- *                 description: Duration of the activity
- *               petId:
- *                 type: string
- *                 description: ID of the pet associated with the activity
  *             example:
  *               date: "15/01/2024"
  *               time: "14:15"
  *               activityType: "medication"
  *               description: "Gave NexGard flea prevention pill"
- *               notes: "Monthly dose"
- *               quantity: "1 pill"
- *               duration: null
- *               petId: null
  *     responses:
  *       200:
  *         description: Updated activity
@@ -260,9 +224,6 @@ router.get("/:id", verifyFirebaseToken, async (req, res) => {
  *                 time: "14:15"
  *                 activityType: "medication"
  *                 description: "Gave NexGard flea prevention pill"
- *                 notes: "Monthly dose"
- *                 quantity: "1 pill"
- *                 duration: null
  */
 router.put("/:id", verifyFirebaseToken, async (req, res) => {
   const user = (req as any).user;
@@ -271,7 +232,11 @@ router.put("/:id", verifyFirebaseToken, async (req, res) => {
     if (!entry || entry.ownerId.toString() !== user._id.toString()) {
       return res.status(404).json({ success: false, error: "Not found" });
     }
-    Object.assign(entry, req.body);
+    const { date, time, activityType, description } = req.body;
+    if (date !== undefined) entry.date = date;
+    if (time !== undefined) entry.time = time;
+    if (activityType !== undefined) entry.activityType = activityType;
+    if (description !== undefined) entry.description = description;
     await entry.save();
     res.json({ success: true, activity: entry });
   } catch (err) {

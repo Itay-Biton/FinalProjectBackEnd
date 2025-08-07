@@ -23,6 +23,8 @@ const petSchema = new Schema(
     images: [String],
     description: String,
     isLost: { type: Boolean, default: false },
+    isFound: { type: Boolean, default: false },
+    phoneNumbers: [String],
     location: {
       address: String,
       coordinates: {
@@ -30,18 +32,15 @@ const petSchema = new Schema(
         coordinates: { type: [Number], default: [0, 0] },
       },
     },
-    distance: String,
     registrationDate: { type: Date, default: Date.now },
     vaccinated: Boolean,
     microchipped: Boolean,
-    healthHistory: [healthHistorySchema],
   },
   { timestamps: true }
 );
 
 petSchema.index({ ownerId: 1 });
 petSchema.index({ species: 1 });
-petSchema.index({ isLost: 1 });
 petSchema.index({ "location.coordinates": "2dsphere" });
 
 export default model("Pet", petSchema);

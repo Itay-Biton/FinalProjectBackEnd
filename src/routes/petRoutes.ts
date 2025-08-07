@@ -2,6 +2,7 @@ import { Router } from "express";
 import Pet from "../models/Pet";
 import ActivityEntry from "../models/ActivityEntry";
 import { verifyFirebaseToken } from "../middleware/auth";
+import { computeMatchScore } from "../utils/matchAlgorithm";
 
 const router = Router();
 
@@ -62,6 +63,8 @@ const router = Router();
  *                   vaccinated: true
  *                   microchipped: true
  *                   isLost: false
+ *                   isFound: false
+ *                   phoneNumbers: ["123-456-7890"]
  *               pagination:
  *                 total: 1
  *                 limit: 20
@@ -95,6 +98,8 @@ router.get("/mine", verifyFirebaseToken, async (req, res) => {
     images: pet.images || [],
     description: pet.description,
     isLost: pet.isLost,
+    isFound: pet.isFound,
+    phoneNumbers: pet.phoneNumbers || [],
     vaccinated: pet.vaccinated,
     microchipped: pet.microchipped,
     registrationDate: pet.registrationDate,
@@ -165,11 +170,6 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
   const query: any = {};
   if (species) query.species = species;
   if (search) query.name = { $regex: search, $options: "i" };
-
-  // Only admins can see all pets
-  if ((req as any).user.role !== "admin") {
-    query.ownerId = (req as any).user._id;
-  }
 
   let petsQuery = Pet.find(query);
 
@@ -259,6 +259,14 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
  *               isLost:
  *                 type: boolean
  *                 example: false
+ *               isFound:
+ *                 type: boolean
+ *                 example: false
+ *               phoneNumbers:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["123-456-7890"]
  *               address:
  *                 type: string
  *                 example: "123 Pet Street, New York, NY"
@@ -274,20 +282,6 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
  *               microchipped:
  *                 type: boolean
  *                 example: true
- *               healthHistory:
- *                 type: array
- *                 items:
- *                   type: object
- *                   properties:
- *                     date:
- *                       type: string
- *                       example: "2024-01-15"
- *                     event:
- *                       type: string
- *                       example: "Vaccination"
- *                     details:
- *                       type: string
- *                       example: "DHPP vaccine administered"
  *           example:
  *             name: "Buddy"
  *             species: "dog"
@@ -303,15 +297,14 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
  *               - "https://mypetapp.com/images/pet1.jpg"
  *             description: "Very friendly and energetic"
  *             isLost: false
+ *             isFound: false
+ *             phoneNumbers:
+ *               - "123-456-7890"
  *             address: "123 Pet Street, New York, NY"
  *             lat: 40.7128
  *             lng: -74.0060
  *             vaccinated: true
  *             microchipped: true
- *             healthHistory:
- *               - date: "2024-01-15"
- *                 event: "Vaccination"
- *                 details: "DHPP vaccine administered"
  *     responses:
  *       201:
  *         description: Pet registered
@@ -330,12 +323,13 @@ router.post("/", verifyFirebaseToken, async (req, res) => {
     images,
     description,
     isLost,
+    isFound,
+    phoneNumbers,
     address,
     lat,
     lng,
     vaccinated,
     microchipped,
-    healthHistory,
   } = req.body;
 
   if (!name || !species) {
@@ -360,6 +354,8 @@ router.post("/", verifyFirebaseToken, async (req, res) => {
     images: images || [],
     description,
     isLost,
+    isFound,
+    phoneNumbers,
     location: {
       address: address || "",
       coordinates: {
@@ -369,7 +365,6 @@ router.post("/", verifyFirebaseToken, async (req, res) => {
     },
     vaccinated,
     microchipped,
-    healthHistory,
   });
 
   res.status(201).json({ success: true, pet });
@@ -444,10 +439,11 @@ router.put("/:id", verifyFirebaseToken, async (req, res) => {
     "weight",
     "images",
     "description",
-    "isLost",
+    "phoneNumbers",
     "vaccinated",
     "microchipped",
-    "healthHistory",
+    "isLost",
+    "isFound",
   ];
 
   allowedUpdates.forEach((field) => {
@@ -499,6 +495,93 @@ router.delete("/:id", verifyFirebaseToken, async (req, res) => {
 
   await pet.deleteOne();
   res.json({ success: true, message: "Pet deleted successfully" });
+});
+
+/**
+ * @openapi
+ * /pets/match:
+ *   post:
+ *     summary: Find potential matches for a found pet
+ *     tags:
+ *       - Pets
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - species
+ *               - location
+ *             properties:
+ *               name:
+ *                 type: string
+ *               species:
+ *                 type: string
+ *               breed:
+ *                 type: string
+ *               age:
+ *                 type: string
+ *               furColor:
+ *                 type: string
+ *               eyeColor:
+ *                 type: string
+ *               location:
+ *                 type: object
+ *                 required:
+ *                   - coordinates
+ *                 properties:
+ *                   coordinates:
+ *                     type: array
+ *                     items:
+ *                       type: number
+ *                     example: [34.78, 32.07]
+ *     responses:
+ *       200:
+ *         description: List of best-matching lost pets
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 matches:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       score:
+ *                         type: number
+ *                       lostPet:
+ *                         type: object
+ *                       lostEntry:
+ *                         type: object
+ */
+router.post("/match", verifyFirebaseToken, async (req, res) => {
+  const foundPet = req.body;
+  if (!foundPet || !foundPet.species || !foundPet.location?.coordinates) {
+    return res.status(400).json({
+      success: false,
+      error: "Missing required pet data (species, coordinates)",
+    });
+  }
+
+  // Use isLost and isFound flags for filtering lost pets, no populate needed
+  const lostPets = await Pet.find({ isLost: true, isFound: false });
+
+  const matches = lostPets
+    .map((entry) => {
+      const lostPet = entry._id as any;
+      const score = computeMatchScore(lostPet, foundPet);
+      return { lostPet, lostEntry: entry, score };
+    })
+    .filter((match) => match.score >= 8) // Adjustable threshold
+    .sort((a, b) => b.score - a.score);
+
+  res.json({ success: true, matches });
 });
 
 export default router;
