@@ -49,6 +49,35 @@ const router = Router();
  *     responses:
  *       200:
  *         description: List of businesses
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 businesses:
+ *                   type: array
+ *                   items:
+ *                     allOf:
+ *                       - $ref: '#/components/schemas/Business'
+ *                       - type: object
+ *                         properties:
+ *                           distance:
+ *                             type: string
+ *                             example: "3.2 km"
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     total:
+ *                       type: number
+ *                     limit:
+ *                       type: number
+ *                     offset:
+ *                       type: number
+ *                     hasMore:
+ *                       type: boolean
  */
 router.get("/", verifyFirebaseToken, async (req, res) => {
   const {
@@ -79,9 +108,38 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
   const businesses = await businessesQuery
     .skip(Number(offset))
     .limit(Number(limit));
+  // Add distance field if location is provided and sort by distance
+  let enrichedBusinesses = businesses;
+  if (location && radius) {
+    const [lat, lng] = (location as string).split(",").map(Number);
+    enrichedBusinesses = businesses.map((b: any) => {
+      const [bLng, bLat] = b.location?.coordinates?.coordinates || [0, 0];
+      const R = 6371; // Radius of Earth in km
+      const dLat = ((bLat - lat) * Math.PI) / 180;
+      const dLng = ((bLng - lng) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((lat * Math.PI) / 180) *
+          Math.cos((bLat * Math.PI) / 180) *
+          Math.sin(dLng / 2) *
+          Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const distance = R * c;
+      return {
+        ...b.toObject(),
+        distance: `${distance.toFixed(1)} km`,
+      };
+    });
+    // Sort by numeric distance
+    enrichedBusinesses.sort((a, b) => {
+      const distA = Number(a.distance?.split(" ")[0]) || 0;
+      const distB = Number(b.distance?.split(" ")[0]) || 0;
+      return distA - distB;
+    });
+  }
   res.json({
     success: true,
-    businesses,
+    businesses: enrichedBusinesses,
     pagination: {
       total,
       limit: Number(limit),

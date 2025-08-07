@@ -339,7 +339,7 @@ router.post("/", verifyFirebaseToken, async (req, res) => {
   const parsedAge = typeof age === "string" ? parseFloat(age) : age;
 
   const pet = await Pet.create({
-    ownerId: isFound && !isLost ? null : user._id,
+    ownerId: user._id,
     name,
     species,
     breed,
