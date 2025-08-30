@@ -6,7 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "fake-data": "ts-node src/utils/fakeData.ts",
-    "play": "ts-node-dev src/server.ts"
+    "start": "ts-node-dev src/server.ts"
   },
   "keywords": [],
   "author": "",
