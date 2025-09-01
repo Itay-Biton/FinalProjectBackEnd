@@ -150,12 +150,12 @@ router.get("/mine", verifyFirebaseToken, async (req, res) => {
  *         name: location
  *         schema:
  *           type: string
- *         description: lat,lng
+ *         description: "lat,lng"
  *       - in: query
  *         name: radius
  *         schema:
  *           type: number
- *         description: Radius in km
+ *         description: "Radius in km"
  *       - in: query
  *         name: limit
  *         schema:
@@ -173,44 +173,209 @@ router.get("/mine", verifyFirebaseToken, async (req, res) => {
  *         description: List of pets
  */
 router.get("/", verifyFirebaseToken, async (req, res) => {
-  const {
-    species,
-    location,
-    radius,
-    limit = 20,
-    offset = 0,
-    search,
-  } = req.query as any;
+  try {
+    const {
+      species,
+      location,
+      radius,
+      limit = 20,
+      offset = 0,
+      search,
+    } = req.query as any;
 
-  const query: any = {};
-  if (species) query.species = species;
-  if (search) query.name = { $regex: search, $options: "i" };
+    const baseQuery: any = {};
+    if (species) baseQuery.species = species;
+    if (search) baseQuery.name = { $regex: search, $options: "i" };
 
-  let petsQuery = Pet.find(query);
+    // Helpers
+    const toNumber = (v: any) => (typeof v === "number" ? v : Number(v));
+    const KM_EARTH = 6371; // km
 
-  // Geo search if location & radius provided
-  if (location && radius) {
-    const [lat, lng] = (location as string).split(",").map(Number);
-    petsQuery = petsQuery.where("location.coordinates").near({
-      center: { type: "Point", coordinates: [lng, lat] },
-      maxDistance: Number(radius) * 1000,
-      spherical: true,
+    const haversineKm = (
+      lat1: number,
+      lng1: number,
+      lat2: number,
+      lng2: number
+    ) => {
+      const toRad = (x: number) => (x * Math.PI) / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLng = toRad(lng2 - lng1);
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) *
+          Math.cos(toRad(lat2)) *
+          Math.sin(dLng / 2) *
+          Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return KM_EARTH * c;
+    };
+
+    const pickBestCoords = (pet: any): [number, number] | undefined => {
+      // return [lng, lat] with priority: found → lost → base
+      const found = pet?.foundDetails?.location;
+      const lost = pet?.lostDetails?.lastSeen;
+      const base = pet?.location;
+
+      const tryPoint = (obj: any): [number, number] | undefined => {
+        if (!obj) return;
+        // GeoJSON
+        if (
+          obj.coordinates?.type === "Point" &&
+          Array.isArray(obj.coordinates.coordinates)
+        ) {
+          const [lng, lat] = obj.coordinates.coordinates.map(Number);
+          if (
+            Number.isFinite(lat) &&
+            Number.isFinite(lng) &&
+            !(lat === 0 && lng === 0)
+          )
+            return [lng, lat];
+        }
+        // Plain array [lng, lat]
+        if (Array.isArray(obj.coordinates) && obj.coordinates.length === 2) {
+          const [lng, lat] = obj.coordinates.map(Number);
+          if (
+            Number.isFinite(lat) &&
+            Number.isFinite(lng) &&
+            !(lat === 0 && lng === 0)
+          )
+            return [lng, lat];
+        }
+        return;
+      };
+
+      return tryPoint(found) || tryPoint(lost) || tryPoint(base) || undefined;
+    };
+
+    // If no geo filter, keep old simple flow + pagination via Mongo
+    if (!location || !radius) {
+      const total = await Pet.countDocuments(baseQuery);
+      const pets = await Pet.find(baseQuery)
+        .skip(Number(offset))
+        .limit(Number(limit));
+
+      return res.json({
+        success: true,
+        pets,
+        pagination: {
+          total,
+          limit: Number(limit),
+          offset: Number(offset),
+          hasMore: total > Number(offset) + Number(limit),
+        },
+      });
+    }
+
+    // Parse geo filter
+    const [latStr, lngStr] = (location as string)
+      .split(",")
+      .map((s: string) => s.trim());
+    const lat = toNumber(latStr);
+    const lng = toNumber(lngStr);
+    const radiusKm = toNumber(radius);
+    if (
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lng) ||
+      !Number.isFinite(radiusKm)
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Invalid location/radius" });
+    }
+
+    const centerPoint = {
+      type: "Point",
+      coordinates: [lng, lat] as [number, number],
+    };
+    const maxDistanceMeters = radiusKm * 1000;
+    const radiusRadians = radiusKm / KM_EARTH;
+
+    // Run three geo queries separately (MongoDB does not allow $near inside $or)
+    const [qBase, qFound, qLost] = await Promise.all([
+      // base location (GeoJSON Point)
+      Pet.find({
+        ...baseQuery,
+        "location.coordinates": {
+          $near: { $geometry: centerPoint, $maxDistance: maxDistanceMeters },
+        },
+      }),
+
+      // foundDetails.location (GeoJSON Point)
+      Pet.find({
+        ...baseQuery,
+        "foundDetails.location.coordinates": {
+          $near: { $geometry: centerPoint, $maxDistance: maxDistanceMeters },
+        },
+      }),
+
+      // lostDetails.lastSeen (legacy [lng,lat] array) — use $geoWithin/$centerSphere
+      Pet.find({
+        ...baseQuery,
+        "lostDetails.lastSeen.coordinates": {
+          $geoWithin: { $centerSphere: [[lng, lat], radiusRadians] },
+        },
+      }),
+    ]);
+
+    // Merge + de-dupe
+    const byId = new Map<string, any>();
+    for (const p of [...qBase, ...qFound, ...qLost]) {
+      byId.set(p._id.toString(), p);
+    }
+    const merged = Array.from(byId.values());
+
+    // Compute distance using best available coords (found → lost → base) and sort
+    const enriched = merged
+      .map((p) => {
+        const coords = pickBestCoords(p);
+        let distanceKm: number | undefined;
+        if (coords) {
+          const [plng, plat] = coords;
+          distanceKm = haversineKm(lat, lng, plat, plng);
+        }
+        return {
+          pet: p,
+          distanceKm,
+        };
+      })
+      .filter(
+        (x) => x.distanceKm === undefined || Number.isFinite(x.distanceKm)
+      )
+      .sort((a, b) => {
+        const da = a.distanceKm ?? Number.POSITIVE_INFINITY;
+        const db = b.distanceKm ?? Number.POSITIVE_INFINITY;
+        return da - db;
+      });
+
+    // Manual pagination
+    const total = enriched.length;
+    const start = Number(offset);
+    const end = start + Number(limit);
+    const page = enriched.slice(start, end).map(({ pet, distanceKm }) => {
+      const asObj = pet.toObject ? pet.toObject() : pet;
+      return {
+        ...asObj,
+        distance:
+          distanceKm != null ? `${distanceKm.toFixed(1)} km` : undefined,
+      };
     });
+
+    return res.json({
+      success: true,
+      pets: page,
+      pagination: {
+        total,
+        limit: Number(limit),
+        offset: Number(offset),
+        hasMore: total > end,
+      },
+    });
+  } catch (err: any) {
+    console.error("[GET /pets] error:", err);
+    res
+      .status(500)
+      .json({ success: false, error: err?.message || "Server error" });
   }
-
-  const total = await Pet.countDocuments(query);
-  const pets = await petsQuery.skip(Number(offset)).limit(Number(limit));
-
-  res.json({
-    success: true,
-    pets,
-    pagination: {
-      total,
-      limit: Number(limit),
-      offset: Number(offset),
-      hasMore: total > Number(offset) + Number(limit),
-    },
-  });
 });
 
 /**
@@ -378,110 +543,216 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
  */
 router.post("/", verifyFirebaseToken, async (req, res) => {
   const user = (req as any).user;
-  const {
-    name,
-    species,
-    breed,
-    age,
-    birthday,
-    furColor,
-    eyeColor,
-    weight,
-    images,
-    description,
-    isLost,
-    isFound,
-    phoneNumbers,
-    email,
-    address,
-    lat,
-    lng,
-    vaccinated,
-    microchipped,
-    lostDetails,
-    foundDetails,
-  } = req.body;
 
-  if (!name || !species) {
-    return res.status(400).json({ error: "name and species are required" });
-  }
+  // ---------- helpers ----------
+  const emptyToUndef = (v: any) =>
+    typeof v === "string" ? (v.trim() ? v.trim() : undefined) : v;
 
-  const parsedAge = typeof age === "string" ? parseFloat(age) : age;
+  const numOrUndef = (v: any) => {
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
 
-  const pet = await Pet.create({
-    ownerId: user._id,
-    name,
-    species,
-    breed,
-    age: parsedAge || 0,
-    birthday,
-    furColor,
-    eyeColor,
-    weight: {
-      value: weight?.value || 0,
-      unit: weight?.unit || "kg",
-    },
-    images: images || [],
-    description,
-    isLost,
-    isFound,
-    phoneNumbers: phoneNumbers || [],
-    email: email || undefined,
-    location: {
-      address: address || "",
-      coordinates: {
-        type: "Point",
-        coordinates: lng && lat ? [lng, lat] : [0, 0],
-      },
-    },
-    vaccinated,
-    microchipped,
-    lostDetails: lostDetails || undefined,
-    foundDetails: foundDetails
-      ? {
-          ...foundDetails,
-          location: {
-            address: foundDetails.location?.address || "",
-            coordinates: Array.isArray(foundDetails.location?.coordinates)
-              ? {
-                  type: "Point",
-                  coordinates: foundDetails.location!.coordinates as [
-                    number,
-                    number
-                  ],
-                }
-              : { type: "Point", coordinates: [0, 0] },
-          },
-        }
-      : undefined,
+  const toISOorUndef = (v: any) => {
+    const s = emptyToUndef(v);
+    if (!s) return undefined;
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? undefined : d.toISOString();
+  };
+
+  const ensureStringArray = (arr: any) =>
+    Array.isArray(arr) ? arr.filter((x) => typeof x === "string") : [];
+
+  const normalizePointFromLngLat = (
+    lng?: number,
+    lat?: number
+  ): { type: "Point"; coordinates: [number, number] } => ({
+    type: "Point",
+    coordinates:
+      typeof lng === "number" &&
+      typeof lat === "number" &&
+      !isNaN(lng) &&
+      !isNaN(lat)
+        ? [lng, lat]
+        : [0, 0],
   });
 
-  res.status(201).json({ success: true, pet });
-});
+  // Build GeoJSON from either [lng,lat] array or {lat,lng} object
+  const normalizePointFromInput = (input: any) => {
+    if (!input) return normalizePointFromLngLat(undefined, undefined);
 
-/**
- * @openapi
- * /pets/{id}:
- *   get:
- *     summary: Get pet details
- *     tags:
- *       - Pets
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Pet details
- */
-router.get("/:id", verifyFirebaseToken, async (req, res) => {
-  const pet = await Pet.findById(req.params.id).populate("ownerId");
-  if (!pet) return res.status(404).json({ error: "Pet not found" });
-  res.json({ success: true, pet });
+    if (Array.isArray(input.coordinates) && input.coordinates.length === 2) {
+      const [lng, lat] = input.coordinates.map(Number);
+      return normalizePointFromLngLat(lng, lat);
+    }
+
+    const lat =
+      typeof input.lat === "number"
+        ? input.lat
+        : typeof input.coordinates?.lat === "number"
+        ? input.coordinates.lat
+        : undefined;
+    const lng =
+      typeof input.lng === "number"
+        ? input.lng
+        : typeof input.coordinates?.lng === "number"
+        ? input.coordinates.lng
+        : undefined;
+
+    return normalizePointFromLngLat(
+      typeof lng === "string" ? Number(lng) : lng,
+      typeof lat === "string" ? Number(lat) : lat
+    );
+  };
+
+  try {
+    // ---------- raw body ----------
+    const {
+      name,
+      species,
+      breed,
+      age,
+      birthday,
+      furColor,
+      eyeColor,
+      weight,
+      images,
+      description,
+      isLost,
+      isFound,
+      phoneNumbers,
+      email,
+      address,
+      lat,
+      lng,
+      vaccinated,
+      microchipped,
+      lostDetails,
+      foundDetails,
+    } = req.body || {};
+
+    // ---------- required ----------
+    const safeName = emptyToUndef(name);
+    const safeSpecies = emptyToUndef(species);
+    if (!safeName || !safeSpecies) {
+      return res
+        .status(400)
+        .json({ success: false, error: "name and species are required" });
+    }
+
+    // ---------- scalars / strings ----------
+    const safeBreed = emptyToUndef(breed);
+    const safeFur = emptyToUndef(furColor);
+    const safeEye = emptyToUndef(eyeColor);
+    const safeDesc = emptyToUndef(description);
+    const safeEmail = emptyToUndef(email);
+
+    // ---------- numbers / dates ----------
+    const safeAge = numOrUndef(age);
+    const safeBirthdayISO = toISOorUndef(birthday);
+    const safeLat = numOrUndef(lat);
+    const safeLng = numOrUndef(lng);
+
+    // ---------- weight ----------
+    const safeWeight =
+      weight && numOrUndef(weight.value)
+        ? {
+            value: Number(weight.value),
+            unit: emptyToUndef(weight.unit) || "kg",
+          }
+        : undefined;
+
+    // ---------- arrays ----------
+    const safeImages = Array.isArray(images) ? images : [];
+    const safePhones = ensureStringArray(phoneNumbers);
+
+    // ---------- flags ----------
+    const safeIsLost = Boolean(isLost);
+    const safeIsFound = Boolean(isFound);
+    const safeVaccinated =
+      typeof vaccinated === "boolean" ? vaccinated : undefined;
+    const safeMicrochipped =
+      typeof microchipped === "boolean" ? microchipped : undefined;
+
+    // ---------- top-level location ----------
+    const safeLocation = {
+      address: emptyToUndef(address) || "",
+      coordinates: normalizePointFromLngLat(safeLng, safeLat),
+    };
+
+    // ---------- lostDetails (pass-through if has something) ----------
+    const safeLost =
+      lostDetails &&
+      (lostDetails.dateLost || lostDetails.lastSeen || lostDetails.notes)
+        ? {
+            dateLost: toISOorUndef(lostDetails.dateLost),
+            lastSeen: lostDetails.lastSeen
+              ? {
+                  address: emptyToUndef(lostDetails.lastSeen.address),
+                  coordinates: Array.isArray(lostDetails.lastSeen.coordinates)
+                    ? ([
+                        Number(lostDetails.lastSeen.coordinates[0]),
+                        Number(lostDetails.lastSeen.coordinates[1]),
+                      ] as [number, number])
+                    : undefined,
+                }
+              : undefined,
+            notes: emptyToUndef(lostDetails.notes),
+          }
+        : undefined;
+
+    // ---------- foundDetails (normalize location to GeoJSON Point) ----------
+    let safeFound: any = undefined;
+    if (
+      foundDetails &&
+      (foundDetails.dateFound || foundDetails.location || foundDetails.notes)
+    ) {
+      const loc = foundDetails.location || {};
+      const point = normalizePointFromInput(loc);
+
+      safeFound = {
+        dateFound: toISOorUndef(foundDetails.dateFound),
+        notes: emptyToUndef(foundDetails.notes),
+        location: {
+          address: emptyToUndef(loc.address) || "",
+          coordinates: point, // { type: 'Point', coordinates: [lng,lat] }
+        },
+      };
+    }
+
+    // ---------- create ----------
+    const pet = await Pet.create({
+      ownerId: user._id,
+      name: safeName,
+      species: safeSpecies,
+      breed: safeBreed,
+      age: typeof safeAge === "number" ? safeAge : 0,
+      birthday: safeBirthdayISO,
+      furColor: safeFur,
+      eyeColor: safeEye,
+      weight: safeWeight || { value: 0, unit: "kg" },
+      images: safeImages,
+      description: safeDesc,
+      isLost: safeIsLost,
+      isFound: safeIsFound,
+      phoneNumbers: safePhones,
+      email: safeEmail,
+      location: safeLocation,
+      vaccinated: safeVaccinated,
+      microchipped: safeMicrochipped,
+      lostDetails: safeLost,
+      foundDetails: safeFound,
+    });
+
+    return res.status(201).json({ success: true, pet });
+  } catch (err: any) {
+    // Always return a clean 400/500 with message to avoid silent 500s
+    console.error("[POST /pets] error:", err);
+    const code = err?.name === "ValidationError" ? 400 : 500;
+    return res
+      .status(code)
+      .json({ success: false, error: err?.message || "Server error" });
+  }
 });
 
 /**
