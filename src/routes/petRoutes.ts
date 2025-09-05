@@ -186,6 +186,7 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
     const baseQuery: any = {};
     if (species) baseQuery.species = species;
     if (search) baseQuery.name = { $regex: search, $options: "i" };
+    baseQuery.$or = [{ isLost: true }, { isFound: true }];
 
     // Helpers
     const toNumber = (v: any) => (typeof v === "number" ? v : Number(v));
