@@ -1046,7 +1046,7 @@ router.post("/match", verifyFirebaseToken, async (req, res) => {
       const score = computeMatchScore(lostPet, foundPet);
       return { lostPet, lostEntry: entry, score };
     })
-    .filter((match) => match.score >= 8) // Adjustable threshold
+    .filter((match) => match.score >= 3) // Adjustable threshold
     .sort((a, b) => b.score - a.score);
 
   res.json({ success: true, matches });
@@ -1137,23 +1137,52 @@ router.post("/:id/confirm-match", verifyFirebaseToken, async (req, res) => {
 router.get("/matches", verifyFirebaseToken, async (req, res) => {
   const user = (req as any).user;
 
+  // Get all lost pets owned by the user
   const lostPets = await Pet.find({ ownerId: user._id, isLost: true });
 
-  const matchResults = lostPets.flatMap((pet) =>
-    (pet.matchResults || []).map((match) => ({
-      petId: pet._id,
-      petName: pet.name,
-      matchedPetId: match.petId,
-      score: match.score,
-      matchedAt: match.matchedAt,
-    }))
-  );
+  // Get all found pets not owned by the user
+  const foundPets = await Pet.find({
+    isFound: true,
+    isLost: false,
+    //ownerId: { $ne: user._id },
+  });
 
-  matchResults.sort(
+  const matches = [];
+
+  for (const lost of lostPets) {
+    for (const found of foundPets) {
+      const score = computeMatchScore(
+        lost.toObject?.() ?? lost,
+        found.toObject?.() ?? found
+      );
+      console.log(
+        "lost name:",
+        lost.name,
+        "\nfound name: ",
+        found.name,
+        "\n score: ",
+        score,
+        "\n\n"
+      );
+      if (score >= 3) {
+        matches.push({
+          petId: lost._id,
+          petName: lost.name,
+          matchedPetId: found._id,
+          matchedPetName: found.name,
+          score,
+          matchedAt: new Date().toISOString(),
+          foundPet: found.toObject?.() ?? found,
+        });
+      }
+    }
+  }
+
+  matches.sort(
     (a, b) => new Date(b.matchedAt).getTime() - new Date(a.matchedAt).getTime()
   );
 
-  res.json({ success: true, matches: matchResults });
+  res.json({ success: true, matches });
 });
 
 export default router;

@@ -1,16 +1,17 @@
 import { Types } from "mongoose";
+import Pet from "../models/Pet";
 
-interface PetLike {
-  _id?: string | Types.ObjectId;
-  species?: string;
-  breed?: string;
-  age?: string;
-  furColor?: string;
-  eyeColor?: string;
-  location?: {
-    coordinates?: [number, number];
-  };
-}
+// interface PetLike {
+//   _id?: string | Types.ObjectId;
+//   species?: string;
+//   breed?: string;
+//   age?: string;
+//   furColor?: string;
+//   eyeColor?: string;
+//   location?: {
+//     coordinates?: [number, number];
+//   };
+// }
 
 /**
  * Computes a match score between a lost and found pet.
@@ -18,8 +19,8 @@ interface PetLike {
  * - Pets within `maxScoreRadiusKm` receive full location points; farther ones receive 0 for location.
  */
 function computeMatchScore(
-  lostPet: PetLike,
-  foundPet: PetLike,
+  lostPet: any,
+  foundPet: any,
   maxScoreRadiusKm: number = 3
 ): number {
   if (
@@ -67,8 +68,8 @@ function computeMatchScore(
 
   // Distance-based points (only if within scoring radius)
   const distance = getGeoDistance(
-    lostPet.location?.coordinates ?? [0, 0],
-    foundPet.location?.coordinates ?? [0, 0]
+    lostPet.location?.coordinates?.coordinates ?? [0, 0],
+    foundPet.location?.coordinates?.coordinates ?? [0, 0]
   );
 
   if (distance <= maxScoreRadiusKm) {
@@ -92,4 +93,4 @@ function getGeoDistance(
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export { computeMatchScore, PetLike, getGeoDistance };
+export { computeMatchScore, Pet, getGeoDistance };
