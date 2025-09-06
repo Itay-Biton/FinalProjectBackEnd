@@ -7,11 +7,11 @@ import axios from "axios";
 const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY;
 const router = Router();
 const profilePicUrls = [
-  "https://fra.cloud.appwrite.io/v1/storage/buckets/6890fc000033de743aaa/files/68bc4b69000e52670c83/view?project=6890fbe8000f4b77a48f&mode=admin",
-  "https://fra.cloud.appwrite.io/v1/storage/buckets/6890fc000033de743aaa/files/68bc4b720025329a57b7/view?project=6890fbe8000f4b77a48f&mode=admin",
-  "https://fra.cloud.appwrite.io/v1/storage/buckets/6890fc000033de743aaa/files/68bc4b780013754c6141/view?project=6890fbe8000f4b77a48f&mode=admin",
-  "https://fra.cloud.appwrite.io/v1/storage/buckets/6890fc000033de743aaa/files/68bc4b7e000d3b382c58/view?project=6890fbe8000f4b77a48f&mode=admin",
-  "https://fra.cloud.appwrite.io/v1/storage/buckets/6890fc000033de743aaa/files/68bc4b840004e95e7bb8/view?project=6890fbe8000f4b77a48f&mode=admin",
+  "https://fra.cloud.appwrite.io/v1/storage/buckets/6890fc000033de743aaa/files/68bc502d002bd3b654ab/view?project=6890fbe8000f4b77a48f&mode=admin",
+  "https://fra.cloud.appwrite.io/v1/storage/buckets/6890fc000033de743aaa/files/68bc503300283d6d02f2/view?project=6890fbe8000f4b77a48f&mode=admin",
+  "https://fra.cloud.appwrite.io/v1/storage/buckets/6890fc000033de743aaa/files/68bc5039003900cb8d7f/view?project=6890fbe8000f4b77a48f&mode=admin",
+  "https://fra.cloud.appwrite.io/v1/storage/buckets/6890fc000033de743aaa/files/68bc503f0017915d28a9/view?project=6890fbe8000f4b77a48f&mode=admin",
+  "https://fra.cloud.appwrite.io/v1/storage/buckets/6890fc000033de743aaa/files/68bc50450009ff5c775d/view?project=6890fbe8000f4b77a48f&mode=admin",
 ];
 
 /**
