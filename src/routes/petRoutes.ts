@@ -1120,6 +1120,24 @@ router.post("/:id/confirm-match", verifyFirebaseToken, async (req, res) => {
 
   res.json({ success: true, message: "Match confirmed and others cleared" });
 });
+router.get("/:id", verifyFirebaseToken, async (req, res) => {
+  try {
+    const pet = await Pet.findById(req.params.id);
+    if (!pet)
+      return res.status(404).json({ success: false, error: "Pet not found" });
+
+    // If this endpoint is only for editing, keep it owner-only:
+    if (pet.ownerId?.toString() !== (req as any).user._id.toString()) {
+      return res.status(403).json({ success: false, error: "Forbidden" });
+    }
+
+    return res.json({ success: true, pet });
+  } catch (e: any) {
+    return res
+      .status(400)
+      .json({ success: false, error: e?.message || "Invalid id" });
+  }
+});
 
 /**
  * @openapi
